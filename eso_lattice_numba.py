@@ -6,7 +6,7 @@ from math import exp, sqrt
 from numba import njit, prange
 
 # Constants from paper
-W = 25      # 25-day averaging window
+STRIKE_WINDOW = 25      # 25-day averaging window
 DPY = 300   # 300 trading days per year (25 days/month × 12 months)
 
 @njit(parallel=True, fastmath=True)
@@ -187,14 +187,14 @@ class IndoESOLattice:
         sizes = np.zeros(num_nodes, dtype=np.int64)
         
         for j in range(num_nodes):
-            if i < W - 1:
+            if i < STRIKE_WINDOW - 1:
                 # Not enough history for full window
                 sizes[j] = 1
             else:
                 # Use paper's methodology for representative averages
                 # Approximate number of distinct averages at node (i,j)
-                max_ups_in_window = min(j, W)
-                max_downs_in_window = min(i - j, W)
+                max_ups_in_window = min(j, STRIKE_WINDOW)
+                max_downs_in_window = min(i - j, STRIKE_WINDOW)
                 # This gives rough estimate of distinct paths through window
                 sizes[j] = max(1, max_ups_in_window * max_downs_in_window // 4 + 1)
         
@@ -210,7 +210,7 @@ class IndoESOLattice:
         for j in range(num_nodes):
             lo, hi = prefix[j], prefix[j + 1]
             
-            if i < W - 1:
+            if i < STRIKE_WINDOW - 1:
                 # Current stock price as average
                 s_ij_div_s0 = self.u**j * self.d**(i - j)
                 avg_array[lo] = s_ij_div_s0
@@ -222,6 +222,7 @@ class IndoESOLattice:
                     avg_array[lo] = (amin + amax) / 2.0
                 else:
                     avg_array[lo:hi] = np.linspace(amin, amax, sizes[j])
+                    # since k = 0,...,j(1-j) then it's an evenly spaced array. Easier to use linspace.
             
             if terminal:
                 # Terminal payoff: max(S - 0.9*A, 0)
@@ -233,26 +234,21 @@ class IndoESOLattice:
     
     def _compute_avg_bounds(self, i, j):
         """Compute min/max representative averages using paper's method"""
-        # For node (i,j), find paths that give min/max average over last W steps
-        
-        # Constraints on ups in window
-        min_ups = max(0, j - (i - j) + (i - W + 1 - (i - j)))  # Can't have more downs than available
-        min_ups = max(min_ups, j - (i - W + 1))  # Can't have more ups than in total path to (i,j)
-        min_ups = max(0, min_ups)
-        
-        max_ups = min(j, W)  # Can't exceed total ups to reach (i,j) or window size
+        # For node (i,j), find paths that give min/max average over last STRIKE_WINDOW steps
+        min_ups = max(0, j - (i - STRIKE_WINDOW + 1))  # Can't have more ups than in total path to (i,j)
+        max_ups = min(j, STRIKE_WINDOW)  # Can't exceed total ups to reach (i,j) or window size
         
         # For minimum average: minimize ups in window (more downs = lower prices)
         ups_for_min = min_ups
-        downs_for_min = W - ups_for_min
+        downs_for_min = STRIKE_WINDOW - ups_for_min
         
         # For maximum average: maximize ups in window  
         ups_for_max = max_ups
-        downs_for_max = W - ups_for_max
+        downs_for_max = STRIKE_WINDOW - ups_for_max
         
         # Calculate minimum average
         if ups_for_min == 0:
-            sum_min = W * self.d * (1 - self.d**W) / (1 - self.d) if abs(self.d - 1) > 1e-12 else W
+            sum_min = STRIKE_WINDOW * self.d * (1 - self.d**STRIKE_WINDOW) / (1 - self.d) if abs(self.d - 1) > 1e-12 else STRIKE_WINDOW
         else:
             # Sum of geometric series for downs, then ups
             if downs_for_min > 0:
@@ -268,11 +264,11 @@ class IndoESOLattice:
             
             sum_min = sum_downs + sum_ups
         
-        amin = sum_min / W
+        amin = sum_min / STRIKE_WINDOW
         
         # Calculate maximum average  
         if ups_for_max == 0:
-            sum_max = W * self.d * (1 - self.d**W) / (1 - self.d) if abs(self.d - 1) > 1e-12 else W
+            sum_max = STRIKE_WINDOW * self.d * (1 - self.d**STRIKE_WINDOW) / (1 - self.d) if abs(self.d - 1) > 1e-12 else STRIKE_WINDOW
         else:
             # Sum ups first, then downs
             if ups_for_max > 0:
@@ -288,7 +284,7 @@ class IndoESOLattice:
             
             sum_max = sum_ups + sum_downs
         
-        amax = sum_max / W
+        amax = sum_max / STRIKE_WINDOW
         
         # Ensure proper ordering
         if amin > amax:
