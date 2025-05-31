@@ -119,54 +119,13 @@ class IESOLattice:
         self.survive = exp(-lam * self.dt)
         
         # Build execution windows
-        self.windows = self._build_execution_windows()
+        self.windows = self._build_windows()
         self.N = int(round(maturity_years * DAYS_PER_YEAR)) - 1  # Last day index (0-indexed)
         
         self.print_freq = max(print_freq, 1)
         
         if debug:
             self._print_debug_info()
-    # ----- helper functions, to be declared before price() -------------------------------
-    def _build_execution_windows(self):
-        """Build execution windows according to Indonesian ESO rules"""
-        windows = []
-        
-        # Vesting ends at day index (converted to 0-indexed)
-        vest_end_day = int(round(self.Tv * DAYS_PER_YEAR))
-        
-        # Total days in option life
-        total_days = int(round(self.T * DAYS_PER_YEAR))
-        
-        # Indonesian ESO: execution periods twice per year, 6 months apart
-        # Starting from month 13 (after 1-year vesting), then every 6 months
-        
-        months_after_vesting = []
-        current_month = 13  # First execution in month 13 (1-indexed)
-        
-        while current_month <= self.T * 12:  # Convert years to months
-            months_after_vesting.append(current_month)
-            current_month += 6  # Every 6 months
-        
-        for month in months_after_vesting:
-            # Convert month to day index (0-indexed)
-            # Month 13 = days 300-324 (0-indexed: 300-324)
-            start_day = (month - 1) * 25  # 0-indexed
-            end_day = start_day + 24      # 25-day window
-            
-            # Ensure we don't go beyond option maturity
-            if start_day < total_days:
-                end_day = min(end_day, total_days - 1)
-                if start_day <= end_day:
-                    windows.append(np.arange(start_day, end_day + 1))
-        
-        return windows
-    
-    def _is_execution_day(self, day_idx):
-        """Check if given day is in any execution window"""
-        for window in self.windows:
-            if day_idx in window:
-                return True
-        return False
     # ----- public pricing routine ---------------------------------------  
     def price(self):
         """
@@ -206,6 +165,47 @@ class IESOLattice:
             avgN, valN, preN = avgH, valH, preH
         
         return round(valN[0] * self.S0, 4)
+    # ----- helper functions, to be declared before price() -------------------------------
+    def _build_windows(self):
+        """Build execution windows according to Indonesian ESO rules"""
+        windows = []
+        
+        # Vesting ends at day index (converted to 0-indexed)
+        vest_end_day = int(round(self.Tv * DAYS_PER_YEAR))
+        
+        # Total days in option life
+        total_days = int(round(self.T * DAYS_PER_YEAR))
+        
+        # Indonesian ESO: execution periods twice per year, 6 months apart
+        # Starting from month 13 (after 1-year vesting), then every 6 months
+        
+        months_after_vesting = []
+        current_month = 13  # First execution in month 13 (1-indexed)
+        
+        while current_month <= self.T * 12:  # Convert years to months
+            months_after_vesting.append(current_month)
+            current_month += 6  # Every 6 months
+        
+        for month in months_after_vesting:
+            # Convert month to day index (0-indexed)
+            # Month 13 = days 300-324 (0-indexed: 300-324)
+            start_day = (month - 1) * 25  # 0-indexed
+            end_day = start_day + 24      # 25-day window
+            
+            # Ensure we don't go beyond option maturity
+            if start_day < total_days:
+                end_day = min(end_day, total_days - 1)
+                if start_day <= end_day:
+                    windows.append(np.arange(start_day, end_day + 1))
+        
+        return windows
+    
+    def _is_execution_day(self, day_idx):
+        """Check if given day is in any execution window"""
+        for window in self.windows:
+            if day_idx in window:
+                return True
+        return False
     
     def _compute_level(self, i, terminal=False):
         """Compute representative averages for level i"""
