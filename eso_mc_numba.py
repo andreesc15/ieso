@@ -116,6 +116,7 @@ class IESOMonteCarlo:
         self.sigma = sigma
         self.lam = lam
         self.M = M
+        self.q = q
         self.T = maturity_years
         self.Tv = vesting_years
         self.debug        = debug
@@ -205,16 +206,39 @@ class IESOMonteCarlo:
         return round(mean, 4), (round(mean - z_*se, 4), round(mean + z_*se, 4))
 
     # ----- helpers (unchanged logic) ------------------------------------
-    def _build_windows(self) -> List[np.ndarray]:
-        wins = []
-        start_day_of_vested_period = self.Tv_days + 1
-        while True:
-            end = start_day_of_vested_period + DAYS_PER_MONTH - 1
-            if end > self.n_days:
-                break
-            wins.append(np.arange(start_day_of_vested_period, end + 1, dtype=np.int64))
-            start_day_of_vested_period += 6 * DAYS_PER_MONTH
-        return wins
+    def _build_windows(self):
+        """Build execution windows according to Indonesian ESO rules"""
+        windows = []
+        
+        # Vesting ends at day index (converted to 0-indexed)
+        vest_end_day = int(round(self.Tv * DAYS_PER_YEAR))
+        
+        # Total days in option life
+        total_days = int(round(self.T * DAYS_PER_YEAR))
+        
+        # Indonesian ESO: execution periods twice per year, 6 months apart
+        # Starting from month 13 (after 1-year vesting), then every 6 months
+        
+        months_after_vesting = []
+        current_month = 13  # First execution in month 13 (1-indexed)
+        
+        while current_month <= self.T * 12:  # Convert years to months
+            months_after_vesting.append(current_month)
+            current_month += 6  # Every 6 months
+        
+        for month in months_after_vesting:
+            # Convert month to day index (0-indexed)
+            # Month 13 = days 300-324 (0-indexed: 300-324)
+            start_day = (month - 1) * 25  # 0-indexed
+            end_day = start_day + 24      # 25-day window
+            
+            # Ensure we don't go beyond option maturity
+            if start_day < total_days:
+                end_day = min(end_day, total_days - 1)
+                if start_day <= end_day:
+                    windows.append(np.arange(start_day, end_day + 1))
+        
+        return windows
 
     def _print_calendar(self):
         print("=== CALENDAR ===")
@@ -236,6 +260,7 @@ if __name__ == "__main__":
     p1, ci1 = eso1.price(n_paths=250_000, verbose=True)
     print(f"\nIESO-1  Price: {p1}   95% CI: {ci1[0]}, {ci1[1]}")
     print("-"*50)
+    print(eso1._build_windows())
 
     print("Running IESO-2 (19 mo maturity)…")
     eso2 = IESOMonteCarlo(maturity_years=19/12, vesting_years=1.0,
@@ -244,6 +269,7 @@ if __name__ == "__main__":
     p2, ci2 = eso2.price(n_paths=250_000, verbose=True)
     print(f"IESO-2  Price: {p2}   95% CI: {ci2}")
     print("-"*50)
+    print(eso2._build_windows())
 
     print("Running IESO-8 (5 yr maturity)…")
     eso8 = IESOMonteCarlo(maturity_years=5.0, vesting_years=1.0,
@@ -252,3 +278,4 @@ if __name__ == "__main__":
     p8, ci8 = eso8.price(n_paths=250_000, verbose=True)
     print(f"IESO-8  Price: {p8}   95% CI: {ci8}")
     print("-"*50)
+    print(eso8._build_windows())
